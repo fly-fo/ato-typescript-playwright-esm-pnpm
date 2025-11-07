@@ -1,11 +1,7 @@
-# Name of the pipeline
 name: ato-typescript-playwright-esm-pnpm
 
-# Pipeline execution rules
 on:
-  # schedule:                        # Run the pipeline when triggered by a scheduled event
-  #   - cron: '0 0 */3 * *'          # Run the pipeline every 3rd day at midnight UTC
-  workflow_dispatch:                 # Run the pipeline when triggered manually from the web UI
+  workflow_dispatch:
     inputs:
       ALLURE_JOB_RUN_ID:
         description: "ALLURE_JOB_RUN_ID - service parameter, leave blank"
@@ -15,109 +11,105 @@ on:
         description: "ALLURE_USERNAME - service parameter, leave blank"
         required: false
         default: ""
-      # BROWSER configuration is defined in playwright.config.ts
-      #
-      # BROWSER: 
-      #  description: "Specify the browser"
-      #  required: true
-      #  default: "Chrome"                                              # Default browser
-      #  type: choice
-      #  options:                                                       # Available options
-      #    - "Chrome"
-      #    - "Firefox"
-      #    - "Safari"
-      #
-      HOST: 
+      HOST:
         description: "Specify the environment host"
         required: true
-        default: "demo.testops.cloud"                                   # Default environment host
+        default: "demo.testops.cloud"
         type: choice
-        options:                                                        # Available options
+        options:
           - "demo.testops.cloud"
           - "production.testops.cloud"
           - "qa.testops.cloud"
           - "testing.testops.cloud"
           - "staging.testops.cloud"
-      # OS configuration is defined in playwright.config.ts
-      #
-      # OS: 
-      #  description: "Specify the operating system"
-      #  required: true
-      #  default: "macOS"                                               # Default operating system
-      #  type: choice
-      #  options:                                                       # Available options
-      #    - "Linux"
-      #    - "macOS"
-      #    - "Windows"
-      #
       VERSION:
         description: "Specify the software version under test"
         required: true
-        default: "25.1.0"                                               # Default software version under test
+        default: "25.1.0"
 
-# Global environment variables
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  ALLURE_ENDPOINT: "https://demo.testops.cloud/"                                                # Allure TestOps endpoint URL for submitting test results
-  ALLURE_PROJECT_ID: "4535"                                                                     # Allure TestOps project ID for submitting test results
-  ALLURE_RESULTS: "./allure-results"                                                            # Directory where test result files will be stored
-  ALLURE_TOKEN: ${{ secrets.ALLURE_TOKEN }}                                                     # Authentication token for Allure TestOps (secured environment variable)
-  ALLURE_LAUNCH_NAME_WITHOUT_TIME: "TypeScript/Playwright - #${{ github.run_number }}"          # Base Allure TestOps launch name (without timestamp)
-  BRANCH: ${{ github.ref_name }}                                                                # Current Git branch name
-  BROWSER: ${{ inputs.BROWSER }}                                                                # Browser specified for test execution
-  HOST: ${{ inputs.HOST }}                                                                      # Environment host specified for test execution
-  OS: ${{ inputs.OS }}                                                                          # Operating system specified for test execution
-  VERSION: ${{ inputs.VERSION }}                                                                # Software version under test specified
-  HOME: /root                                                                                   # Home directory path required for Firefox to run as root
+  ALLURE_ENDPOINT: "https://demo.testops.cloud"
+  ALLURE_PROJECT_ID: "4535"
+  ALLURE_RESULTS: "./allure-results"
+  ALLURE_TOKEN: ${{ secrets.ALLURE_TOKEN }}
+  ALLURE_LAUNCH_NAME_WITHOUT_TIME: "TypeScript/Playwright - #${{ github.run_number }}"
+  BRANCH: ${{ github.ref_name }}
+  HOST: ${{ inputs.HOST }}
+  VERSION: ${{ inputs.VERSION }}
+  HOME: /root
 
-# Jobs used in the pipeline
 jobs:
-  # Job for timestamp parsing
   timestamp:
     name: timestamp_parsing
     runs-on: ubuntu-latest
     outputs:
-      parsed_timestamp: ${{ steps.set-output.outputs.PARSED_TIMESTAMP }}
+      parsed_timestamp: ${{ steps.now.outputs.PARSED_TIMESTAMP }}
     steps:
-      - name: Set Timestamp
-        id: set-output
+      - name: Compute timestamp (UTC)
+        id: now
         run: |
-          PARSED_TIMESTAMP=$(date -d "${{ github.event.head_commit.timestamp }} +3 hours" +"%Y.%m.%d - %H:%M:%S")
-          echo "PARSED_TIMESTAMP=$PARSED_TIMESTAMP" >> $GITHUB_OUTPUT
-        # Adjust the commit timestamp (+3 hours) and format it
-        # Export the parsed timestamp to GitHub Actions output for reuse
-  
-  # Job for test execution
+          PARSED_TIMESTAMP=$(date -u +"%Y.%m.%d - %H:%M:%S UTC")
+          echo "PARSED_TIMESTAMP=$PARSED_TIMESTAMP" >> "$GITHUB_OUTPUT"
+
   tests:
     name: tests_execution
     needs: timestamp
     runs-on: ubuntu-latest
     container:
-      image: mcr.microsoft.com/playwright:v1.42.1-jammy          # Use the official Playwright Docker image
+      image: mcr.microsoft.com/playwright:v1.42.1-jammy
     steps:
-      - uses: actions/checkout@v3                                # Checkout the code from the repository
-      
-      - name: ⚙️ Enable and configure the package manager with pnpm and Playwright browser dependencies
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm via corepack
         run: |
           corepack enable
           corepack prepare pnpm@8.15.4 --activate
-          pnpm install
-          npx playwright install
-        # Enable corepack to manage package managers (e.g., pnpm)
-        # Install and activate a specific pnpm version
-        # Install dependencies
-        # Install Playwright browser dependencies
+          pnpm --version
 
-      - name: ⬇️ Download allurectl
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install deps
+        env:
+          PNPM_STORE_DIR: ~/.pnpm-store
         run: |
-          wget https://github.com/allure-framework/allurectl/releases/latest/download/allurectl_linux_amd64 -O ./allurectl
-          chmod +x ./allurectl
-        # Download allurectl
-        # Make allurectl executable
+          pnpm install --frozen-lockfile
 
-      - name: ▶️ Run tests
+      - name: Download allurectl
+        run: |
+          wget -q https://github.com/allure-framework/allurectl/releases/latest/download/allurectl_linux_amd64 -O ./allurectl
+          chmod +x ./allurectl
+          ./allurectl --version || true
+
+      - name: Run tests with Allure upload
         env:
           ALLURE_LAUNCH_NAME: "${{ env.ALLURE_LAUNCH_NAME_WITHOUT_TIME }} - ${{ needs.timestamp.outputs.parsed_timestamp }}"
-        # Set the full Allure TestOps launch name (with timestamp)
+          ALLURE_JOB_RUN_ID: ${{ inputs.ALLURE_JOB_RUN_ID }}
+          ALLURE_USERNAME: ${{ inputs.ALLURE_USERNAME }}
         run: |
           ./allurectl watch pnpm test
-        # Execute tests and upload test results to Allure TestOps
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
+          if-no-files-found: ignore
