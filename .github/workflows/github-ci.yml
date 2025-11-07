@@ -64,25 +64,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up pnpm via corepack
+      - name: Select pnpm version via lockfile
+        id: pnpmver
+        shell: bash
         run: |
           corepack enable
-          corepack prepare pnpm@8.15.4 --activate
+          if [ -f pnpm-lock.yaml ]; then
+            V=$(grep -E "^lockfileVersion:" pnpm-lock.yaml | sed -E "s/.*'([0-9]+)'.*/\1/; s/.* ([0-9]+).*/\1/")
+            if [ "$V" = "9" ]; then
+              corepack prepare pnpm@9.12.3 --activate
+            else
+              corepack prepare pnpm@8.15.4 --activate
+            fi
+          else
+            corepack prepare pnpm@8.15.4 --activate
+          fi
           pnpm --version
 
       - name: Cache pnpm store
         uses: actions/cache@v4
         with:
           path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-pnpm-${{ steps.pnpmver.outputs.cachekey || hashFiles('**/pnpm-lock.yaml', '**/package.json') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-pnpm-
 
       - name: Install deps
         env:
           PNPM_STORE_DIR: ~/.pnpm-store
         run: |
-          pnpm install --frozen-lockfile
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            pnpm install --no-frozen-lockfile
+          fi
 
       - name: Download allurectl
         run: |
