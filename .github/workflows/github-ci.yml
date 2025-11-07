@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       ALLURE_JOB_RUN_ID:
-        description: "ALLURE_JOB_RUN_ID - service parameter, leave blank"
+        description: "ALLURE_JOB_RUN_ID - leave blank"
         required: false
         default: ""
       ALLURE_USERNAME:
-        description: "ALLURE_USERNAME - service parameter, leave blank"
+        description: "ALLURE_USERNAME - leave blank"
         required: false
         default: ""
       HOST:
-        description: "Specify the environment host"
+        description: "Environment host"
         required: true
         default: "demo.testops.cloud"
         type: choice
@@ -23,13 +23,9 @@ on:
           - "testing.testops.cloud"
           - "staging.testops.cloud"
       VERSION:
-        description: "Specify the software version under test"
+        description: "Version under test"
         required: true
         default: "25.1.0"
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   ALLURE_ENDPOINT: "https://demo.testops.cloud"
@@ -44,19 +40,15 @@ env:
 
 jobs:
   timestamp:
-    name: timestamp_parsing
     runs-on: ubuntu-latest
     outputs:
       parsed_timestamp: ${{ steps.now.outputs.PARSED_TIMESTAMP }}
     steps:
-      - name: Compute timestamp (UTC)
-        id: now
+      - id: now
         run: |
-          PARSED_TIMESTAMP=$(date -u +"%Y.%m.%d - %H:%M:%S UTC")
-          echo "PARSED_TIMESTAMP=$PARSED_TIMESTAMP" >> "$GITHUB_OUTPUT"
+          echo "PARSED_TIMESTAMP=$(date -u +"%Y.%m.%d - %H:%M:%S UTC")" >> $GITHUB_OUTPUT
 
   tests:
-    name: tests_execution
     needs: timestamp
     runs-on: ubuntu-latest
     container:
@@ -64,52 +56,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select pnpm version via lockfile
-        id: pnpmver
-        shell: bash
+      - name: Install deps
         run: |
           corepack enable
-          if [ -f pnpm-lock.yaml ]; then
-            V=$(grep -E "^lockfileVersion:" pnpm-lock.yaml | sed -E "s/.*'([0-9]+)'.*/\1/; s/.* ([0-9]+).*/\1/")
-            if [ "$V" = "9" ]; then
-              corepack prepare pnpm@9.12.3 --activate
-            else
-              corepack prepare pnpm@8.15.4 --activate
-            fi
-          else
-            corepack prepare pnpm@8.15.4 --activate
-          fi
-          pnpm --version
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ steps.pnpmver.outputs.cachekey || hashFiles('**/pnpm-lock.yaml', '**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
-
-      - name: Install deps
-        env:
-          PNPM_STORE_DIR: ~/.pnpm-store
-        run: |
-          if [ -f pnpm-lock.yaml ]; then
-            pnpm install --frozen-lockfile
-          else
-            pnpm install --no-frozen-lockfile
-          fi
+          corepack prepare pnpm@8.15.4 --activate
+          pnpm install --no-frozen-lockfile
 
       - name: Download allurectl
         run: |
           wget -q https://github.com/allure-framework/allurectl/releases/latest/download/allurectl_linux_amd64 -O ./allurectl
           chmod +x ./allurectl
-          ./allurectl --version || true
 
-      - name: Run tests with Allure upload
+      - name: Run tests
         env:
           ALLURE_LAUNCH_NAME: "${{ env.ALLURE_LAUNCH_NAME_WITHOUT_TIME }} - ${{ needs.timestamp.outputs.parsed_timestamp }}"
-          ALLURE_JOB_RUN_ID: ${{ inputs.ALLURE_JOB_RUN_ID }}
-          ALLURE_USERNAME: ${{ inputs.ALLURE_USERNAME }}
         run: |
           ./allurectl watch pnpm test
 
