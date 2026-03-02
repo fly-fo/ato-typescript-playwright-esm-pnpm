@@ -96,7 +96,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3                                # Checkout the code from the repository
       
-      - name: ⚙️ Enable and configure the package manager with pnpm and Playwright browser dependencies
+      - name: Enable and configure the package manager with pnpm and Playwright browser dependencies
         run: |
           corepack enable
           corepack prepare pnpm@8.15.4 --activate
@@ -107,14 +107,14 @@ jobs:
         # Install dependencies
         # Install Playwright browser dependencies
 
-      - name: ⬇️ Download allurectl
+      - name: Download allurectl
         run: |
           wget https://github.com/allure-framework/allurectl/releases/latest/download/allurectl_linux_amd64 -O ./allurectl
           chmod +x ./allurectl
         # Download allurectl
         # Make allurectl executable
 
-      - name: ▶️ Run tests
+      - name: Run tests
         env:
           ALLURE_LAUNCH_NAME: "${{ env.ALLURE_LAUNCH_NAME_WITHOUT_TIME }} - ${{ needs.timestamp.outputs.parsed_timestamp }}"
         # Set the full Allure TestOps launch name (with timestamp)
